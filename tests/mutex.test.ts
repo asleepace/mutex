@@ -51,34 +51,52 @@ describe('Mutex', () => {
       await sleepRand()
       buffer += char
     })
-
     writeToBuffer('a')
     writeToBuffer('b')
     writeToBuffer('c')
     writeToBuffer('d')
-
     await mutex.finished()
     expect(buffer).toBe('abcd')
     expect(mutex.lockCount).toBe(0)
   })
 
-  test('should be able to continue if an operation fails', async () => {
+  test('should be able to continue if a single operation fails', async () => {
     const mutex = Mutex.shared()
     let buffer = ""
     const writeToBuffer = mutex.wrap(async (char: string) => {
       await sleepRand()
       if (char === 'c') throw new Error('Invalid char C')
-
       buffer += char
     })
-
     writeToBuffer('a')
     writeToBuffer('b')
-    writeToBuffer('c')
+    writeToBuffer('c').catch(() => {})
     writeToBuffer('d')
-
     await mutex.finished()
     expect(buffer).toBe('abd')
     expect(mutex.lockCount).toBe(0)
+  })
+
+  test('should be able to destroy mutex and pending locks', async () => {
+    const mutex = Mutex.shared()
+    const buffer: number[] = []
+
+    const writeToBuffer = mutex.wrap(async (item: number) => {
+      await sleep(1000)
+      buffer.push(item)
+    })
+
+    try {
+      writeToBuffer(1).catch(() => {})
+      writeToBuffer(2).catch(() => {})
+      writeToBuffer(3).catch(() => {})
+      writeToBuffer(4).catch(() => {})
+      mutex.destroy()
+
+    } finally {
+      expect(buffer.length).toBe(0)
+      expect(mutex.lockCount).toBe(0)
+      expect(mutex.isDestroyed).toBe(true)
+    }
   })
 })

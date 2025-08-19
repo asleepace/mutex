@@ -29,7 +29,7 @@ class AsyncLock {
   constructor(private cleanup?: () => void) {}
 
   public get isUnlocked(): boolean {
-    return !this.lock
+    return !this.lock;
   }
 
   public cancel(reason?: any) {
@@ -58,7 +58,9 @@ class AsyncLock {
  *  Generator used to create a series of `LockPromise` instances,
  *  which will resolve sequentially.
  */
-async function* locksmith(cleanup?: () => void): AsyncGenerator<AsyncLock, void, void> {
+async function* createLocksmith(
+  cleanup?: () => void
+): AsyncGenerator<AsyncLock, void, void> {
   do {
     try {
       const lock = new AsyncLock(cleanup);
@@ -78,7 +80,7 @@ async function* locksmith(cleanup?: () => void): AsyncGenerator<AsyncLock, void,
  *  we fail to resolve the lock before completion.
  */
 function withTimeout(timeout?: number): Promise<never> | undefined {
-  if (!timeout) return undefined
+  if (!timeout) return undefined;
   return new Promise((_, reject) => {
     setTimeout(() => reject(new ErrorLockTimeout()), timeout);
   });
@@ -91,10 +93,9 @@ function withTimeout(timeout?: number): Promise<never> | undefined {
  *  released manually or automatically via the `using` keyword.
  */
 export class Mutex {
-  static readonly ErrorMutexDestroyed = ErrorMutexDestroyed
-  static readonly ErrorLockCancelled = ErrorLockCancelled
-  static readonly ErrorLockTimeout = ErrorLockTimeout
-
+  static readonly ErrorMutexDestroyed = ErrorMutexDestroyed;
+  static readonly ErrorLockCancelled = ErrorLockCancelled;
+  static readonly ErrorLockTimeout = ErrorLockTimeout;
 
   /**
    *  @static helper which create a new mutex instance.
@@ -106,7 +107,7 @@ export class Mutex {
   /**
    *  @private generator which create new locks.
    */
-  private locksmith? = locksmith();
+  private locksmith?: AsyncGenerator<AsyncLock, void, void>;
 
   /**
    *  @private reference to the currently held lock.
@@ -116,28 +117,28 @@ export class Mutex {
   /**
    *  Total number of pending lock acquisitions.
    */
-  private pending: number = 0
+  private pending: number = 0;
 
   constructor() {
-    this.current = undefined
-    this.pending = 0
-    this.locksmith = locksmith(() => {
-      this.pending -= 1
-    })
+    this.current = undefined;
+    this.pending = 0;
+    this.locksmith = createLocksmith(() => {
+      this.pending -= 1;
+    });
   }
 
   /**
    *  Get the total number of pending locks.
    */
   get lockCount(): number {
-    return this.pending
+    return this.pending;
   }
 
   /**
    *  Returns `true` if the current mutex has been destroyed and can no
    *  longer acquire any new locks.
    */
-  isDestroyed(): boolean {
+  get isDestroyed(): boolean {
     return !this.locksmith;
   }
 
@@ -146,8 +147,8 @@ export class Mutex {
    *  once the lock is acuired it will be immediately released.
    */
   async finished(): Promise<void> {
-    const mutex = await this.acquireLock()
-    mutex.releaseLock()
+    const mutex = await this.acquireLock();
+    mutex.releaseLock();
   }
 
   /**
@@ -157,10 +158,12 @@ export class Mutex {
    */
   async acquireLock(options: { timeout?: number } = {}): Promise<AsyncLock> {
     if (!this.locksmith) throw new ErrorMutexDestroyed();
-    this.pending += 1
-    const timeoutPromise = withTimeout(options.timeout)
+    this.pending += 1;
+    const timeoutPromise = withTimeout(options.timeout);
     const getLockPromise = this.locksmith.next();
-    const lock = await Promise.race([getLockPromise, timeoutPromise].filter((item) => item !== undefined));
+    const lock = await Promise.race(
+      [getLockPromise, timeoutPromise].filter((item) => item !== undefined)
+    );
     if (!this.locksmith || !lock || !lock.value || lock.done) {
       throw new ErrorMutexDestroyed();
     }
@@ -176,9 +179,10 @@ export class Mutex {
     if (!this.locksmith) return;
     this.current?.cancel(new ErrorMutexDestroyed());
     this.current = undefined;
+    this.pending = 0
     this.locksmith.return(undefined).catch((e) => {
       // ingore cleanup issues
-    })
+    });
     this.locksmith = undefined;
   }
 
