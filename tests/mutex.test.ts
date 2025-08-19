@@ -309,10 +309,10 @@ describe("Mutex", () => {
     });
 
     test("should handle lock cancellation", async () => {
-      const lock = await mutex.acquireLock();
+      const lock = await mutex.acquireLock()
       expect(lock.isUnlocked).toBe(false);
       
-      lock.cancel(new Error("Test cancellation"));
+      lock.cancel(new Error('Cancelled operation'));
       expect(lock.isUnlocked).toBe(true);
     });
 

@@ -34,8 +34,10 @@ class AsyncLock {
 
   public cancel(reason?: any) {
     if (!this.lock) return;
+    this.unlocked().catch(() => {}); // NOTE: prevent errors from bubbling here
+    this.cleanup?.();
     this.lock?.reject(reason);
-    this.lock = undefined;
+    this.lock = undefined
   }
 
   public releaseLock() {
@@ -70,6 +72,12 @@ async function* createLocksmith(
       console.warn("[lock] rejection:", e);
       if (e instanceof ErrorMutexDestroyed) {
         break;
+      }
+      if (e instanceof ErrorLockCancelled) {
+        continue;
+      }
+      if (e instanceof ErrorLockTimeout) {
+        continue;
       }
     }
   } while (true);
@@ -117,21 +125,25 @@ export class Mutex {
   /**
    *  Total number of pending lock acquisitions.
    */
-  private pending: number = 0;
+  private __pending = 0;
 
   constructor() {
     this.current = undefined;
-    this.pending = 0;
     this.locksmith = createLocksmith(() => {
-      this.pending -= 1;
+      this.lockCount -= 1;
     });
+  }
+
+  private set lockCount(nextValue: number) {
+    this.__pending = Math.max(nextValue, 0);
   }
 
   /**
    *  Get the total number of pending locks.
    */
-  get lockCount(): number {
-    return this.pending;
+  get lockCount() {
+    if (this.isDestroyed) return 0;
+    return this.__pending;
   }
 
   /**
@@ -158,11 +170,10 @@ export class Mutex {
    */
   async acquireLock(options: { timeout?: number } = {}): Promise<AsyncLock> {
     if (!this.locksmith) throw new ErrorMutexDestroyed();
-    this.pending += 1;
-    const timeoutPromise = withTimeout(options.timeout);
-    const getLockPromise = this.locksmith.next();
-    let lock: IteratorYieldResult<AsyncLock> | undefined
     try {
+      this.lockCount += 1;
+      const timeoutPromise = withTimeout(options.timeout);
+      const getLockPromise = this.locksmith.next();
       const lock = await Promise.race(
         [getLockPromise, timeoutPromise].filter((item) => item !== undefined)
       );
@@ -172,8 +183,8 @@ export class Mutex {
       this.current = lock.value;
       return lock.value;
     } catch (e) {
-      this.pending -= 1
-      throw e
+      this.lockCount -= 1;
+      throw e;
     }
   }
 
@@ -181,15 +192,19 @@ export class Mutex {
    *  Destroys the current mutex and cancels any and all pending operations, once
    *  destroyed this mutex cannot be used again.
    */
-  destroy(): void {
+  async destroy(): Promise<void> {
     if (!this.locksmith) return;
-    this.current?.cancel(new ErrorMutexDestroyed());
-    this.current = undefined;
-    this.pending = 0
-    this.locksmith.return(undefined).catch((e) => {
-      // ingore cleanup issues
-    });
-    this.locksmith = undefined;
+    try {
+      this.lockCount = 0
+      this.current?.cancel()
+      this.locksmith.return(undefined).catch((e) => {
+        console.warn('[mutex] lock abandonned:', e)
+      })
+    } finally {
+      this.locksmith = undefined;
+      this.current = undefined;
+      this.lockCount = 0;
+    }
   }
 
   /**
