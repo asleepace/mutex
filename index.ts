@@ -161,14 +161,20 @@ export class Mutex {
     this.pending += 1;
     const timeoutPromise = withTimeout(options.timeout);
     const getLockPromise = this.locksmith.next();
-    const lock = await Promise.race(
-      [getLockPromise, timeoutPromise].filter((item) => item !== undefined)
-    );
-    if (!this.locksmith || !lock || !lock.value || lock.done) {
-      throw new ErrorMutexDestroyed();
+    let lock: IteratorYieldResult<AsyncLock> | undefined
+    try {
+      const lock = await Promise.race(
+        [getLockPromise, timeoutPromise].filter((item) => item !== undefined)
+      );
+      if (!this.locksmith || !lock || !lock.value || lock.done) {
+        throw new ErrorMutexDestroyed();
+      }
+      this.current = lock.value;
+      return lock.value;
+    } catch (e) {
+      this.pending -= 1
+      throw e
     }
-    this.current = lock.value;
-    return lock.value;
   }
 
   /**
