@@ -32,6 +32,9 @@ class AsyncLock {
     return !this.lock
   }
 
+  /**
+   * Cancels the current lock, but does not destroy the mutex.
+   */
   public cancel(reason?: any) {
     if (!this.lock) return
     this.unlocked().catch(() => {}) // NOTE: prevent errors from bubbling here
@@ -40,6 +43,9 @@ class AsyncLock {
     this.lock = undefined
   }
 
+  /**
+   * Release the current lock so that the next operation can continue.
+   */
   public releaseLock() {
     if (!this.lock) return
     this.cleanup?.()
@@ -47,6 +53,11 @@ class AsyncLock {
     this.lock = undefined
   }
 
+  /**
+   * Returns a promise which will resolve when this lock is released.
+   *
+   * @note will throw if lock is cancelled.
+   */
   public unlocked(): Promise<void> {
     return this.lock?.promise || Promise.resolve()
   }
