@@ -1,6 +1,6 @@
 {
   "name": "@asleepace/mutex",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A lightweight, TypeScript-first async mutex implementation with timeout support and automatic cleanup",
   "keywords": ["mutex", "async", "lock", "typescript", "concurrency", "semaphore", "using", "dispose"],
   "author": "Colin Teahan <colin@asleepace.com>",
