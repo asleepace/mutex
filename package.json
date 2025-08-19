@@ -1,14 +1,55 @@
 {
-  "name": "mutex",
-  "module": "index.ts",
+  "name": "@asleepace/mutex",
+  "version": "1.0.0",
+  "description": "A lightweight, TypeScript-first async mutex implementation with timeout support and automatic cleanup",
+  "keywords": ["mutex", "async", "lock", "typescript", "concurrency", "semaphore"],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asleepace/mutex.git"
+  },
+  "homepage": "https://github.com/asleepace/mutex#readme",
+  "bugs": {
+    "url": "https://github.com/asleepace/mutex/issues"
+  },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "bun test"
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm run test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   }
 }
