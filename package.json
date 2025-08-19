@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A lightweight, TypeScript-first async mutex implementation with timeout support and automatic cleanup",
   "keywords": ["mutex", "async", "lock", "typescript", "concurrency", "semaphore"],
-  "author": "Your Name <your.email@example.com>",
+  "author": "Colin Teahan <colin@asleepace.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
