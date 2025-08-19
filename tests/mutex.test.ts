@@ -61,4 +61,24 @@ describe('Mutex', () => {
     expect(buffer).toBe('abcd')
     expect(mutex.lockCount).toBe(0)
   })
+
+  test('should be able to continue if an operation fails', async () => {
+    const mutex = Mutex.shared()
+    let buffer = ""
+    const writeToBuffer = mutex.wrap(async (char: string) => {
+      await sleepRand()
+      if (char === 'c') throw new Error('Invalid char C')
+
+      buffer += char
+    })
+
+    writeToBuffer('a')
+    writeToBuffer('b')
+    writeToBuffer('c')
+    writeToBuffer('d')
+
+    await mutex.finished()
+    expect(buffer).toBe('abd')
+    expect(mutex.lockCount).toBe(0)
+  })
 })
