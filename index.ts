@@ -23,7 +23,7 @@ export class ErrorLockTimeout extends Error {
  * A simple promise based locking mechanism which can be awaited
  * and released.
  */
-class AsyncLock {
+export class AsyncLock {
   private lock? = Promise.withResolvers<void>()
 
   constructor(private cleanup?: () => void) {}
