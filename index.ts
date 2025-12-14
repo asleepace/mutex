@@ -117,6 +117,35 @@ export class Mutex {
   static readonly ErrorLockTimeout = ErrorLockTimeout
 
   /**
+   * Global mutex singleton.
+   */
+  static readonly global = new Mutex()
+
+  /**
+   * Runs operation after acquiring the global mutex lock.
+   *
+   * @note global timeout is 2 minutes.
+   */
+  static async run<T>(operation: () => Promise<T> | T): Promise<T> {
+    return await Mutex.global.run(operation, { timeout: 120_000 })
+  }
+
+  /**
+   * Runs operation after acquiring global mutex lock and catches any errors,
+   * returns a result tuple.
+   * 
+   * @note global timeout is 2 minutes.
+   */
+  static async runSafe<T>(operation: () => Promise<T> | T): Promise<[T, undefined] | [undefined, Error]> {
+    return await Mutex.global.runSafe(operation, { timeout: 120_000 })
+  }
+
+  /**
+   * Wraps an operation with the global mutex.
+   */
+  static wrap = Mutex.global.wrap
+
+  /**
    * Static helper which creates a new mutex instance.
    */
   static shared(): Mutex {
@@ -239,6 +268,8 @@ export class Mutex {
   /**
    * Helper method which will execute the current operation once it has acquired the
    * mutex lock, return the value and release the lock automatically.
+   *
+   * @deprecated use `.run(operation)` instead.
    */
   async withLock<T>(operation: () => T | Promise<T>): Promise<Awaited<T>> {
     const lock = await this.acquireLock()
@@ -249,6 +280,34 @@ export class Mutex {
     }
   }
 
+  /**
+   * Run operation after acquiring mutex lock.
+   */
+  async run<T>(operation: () => T | Promise<T>, options: { timeout: number } = { timeout: 120_000 }): Promise<T> {
+    const lock = await this.acquireLock(options)
+    try {
+      return await operation()
+    } finally {
+      lock.releaseLock()
+    }
+  }
+
+  /**
+   * Run operation after acquiring mutex lock and handle errors.
+   */
+  async runSafe<T>(operation: () => Promise<T> | T, options: { timeout: number } = { timeout: 120_000 }): Promise<[T, undefined] | [undefined, Error]> {
+    try {
+      const output = await this.run(operation, options)
+      return [output, undefined]
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e))
+      return [undefined, error]
+    }
+  }
+
+  /**
+   * Destroy mutex when finished.
+   */
   [Symbol.dispose]() {
     this.destroy()
   }
