@@ -364,6 +364,262 @@ describe("Mutex", () => {
     });
   });
 
+  describe("Global mutex", () => {
+    test("Mutex.global should be a singleton Mutex instance", () => {
+      expect(Mutex.global).toBeInstanceOf(Mutex);
+      expect(Mutex.global).toBe(Mutex.global); // Same reference
+      expect(Mutex.global.isDestroyed).toBe(false);
+    });
+
+    test("Mutex.run should execute operation with global mutex lock", async () => {
+      const results: number[] = [];
+
+      // Run multiple operations concurrently
+      const p1 = Mutex.run(async () => {
+        await sleep(30);
+        results.push(1);
+        return "first";
+      });
+
+      const p2 = Mutex.run(async () => {
+        await sleep(10);
+        results.push(2);
+        return "second";
+      });
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+
+      // Should maintain order despite different sleep times
+      expect(results).toEqual([1, 2]);
+      expect(r1).toBe("first");
+      expect(r2).toBe("second");
+    });
+
+    test("Mutex.run should handle synchronous operations", async () => {
+      const result = await Mutex.run(() => 42);
+      expect(result).toBe(42);
+    });
+
+    test("Mutex.run should propagate errors", async () => {
+      await expect(
+        Mutex.run(async () => {
+          throw new Error("Test global error");
+        })
+      ).rejects.toThrow("Test global error");
+    });
+
+    test("Mutex.runSafe should return success tuple on success", async () => {
+      const [result, error] = await Mutex.runSafe(async () => {
+        await sleep(10);
+        return "success value";
+      });
+
+      expect(result).toBe("success value");
+      expect(error).toBeUndefined();
+    });
+
+    test("Mutex.runSafe should return error tuple on failure", async () => {
+      const [result, error] = await Mutex.runSafe(async () => {
+        throw new Error("Expected failure");
+      });
+
+      expect(result).toBeUndefined();
+      expect(error).toBeInstanceOf(Error);
+      expect(error?.message).toBe("Expected failure");
+    });
+
+    test("Mutex.runSafe should convert non-Error throws to Error", async () => {
+      const [result, error] = await Mutex.runSafe(async () => {
+        throw "string error";
+      });
+
+      expect(result).toBeUndefined();
+      expect(error).toBeInstanceOf(Error);
+      expect(error?.message).toBe("string error");
+    });
+
+    test("Mutex.runSafe should maintain order with concurrent calls", async () => {
+      const results: string[] = [];
+
+      const p1 = Mutex.runSafe(async () => {
+        await sleep(20);
+        results.push("a");
+        return "a";
+      });
+
+      const p2 = Mutex.runSafe(async () => {
+        results.push("b");
+        throw new Error("b failed");
+      });
+
+      const p3 = Mutex.runSafe(async () => {
+        results.push("c");
+        return "c";
+      });
+
+      const [[r1], [r2, e2], [r3]] = await Promise.all([p1, p2, p3]);
+
+      expect(results).toEqual(["a", "b", "c"]);
+      expect(r1).toBe("a");
+      expect(r2).toBeUndefined();
+      expect(e2?.message).toBe("b failed");
+      expect(r3).toBe("c");
+    });
+
+    test("Mutex.wrap should wrap operations with global mutex", async () => {
+      const results: string[] = [];
+
+      const appendResult = Mutex.wrap(async (value: string) => {
+        await sleep(Math.random() * 20);
+        results.push(value);
+        return value;
+      });
+
+      const p1 = appendResult("first");
+      const p2 = appendResult("second");
+      const p3 = appendResult("third");
+
+      await Promise.all([p1, p2, p3]);
+
+      expect(results).toEqual(["first", "second", "third"]);
+    });
+
+    test("Mutex.wrap should handle errors correctly", async () => {
+      const failingOp = Mutex.wrap(async (shouldFail: boolean) => {
+        if (shouldFail) throw new Error("Wrapped error");
+        return "success";
+      });
+
+      await expect(failingOp(true)).rejects.toThrow("Wrapped error");
+      const result = await failingOp(false);
+      expect(result).toBe("success");
+    });
+  });
+
+  describe("Instance run and runSafe methods", () => {
+    test("run should execute operation with timeout", async () => {
+      const result = await mutex.run(async () => {
+        await sleep(10);
+        return "completed";
+      }, { timeout: 5000 });
+
+      expect(result).toBe("completed");
+      expect(mutex.lockCount).toBe(0);
+    });
+
+    test("run should timeout if lock cannot be acquired", async () => {
+      const lock = await mutex.acquireLock();
+
+      await expect(
+        mutex.run(async () => "never", { timeout: 50 })
+      ).rejects.toThrow(Mutex.ErrorLockTimeout);
+
+      lock.releaseLock();
+    });
+
+    test("run should release lock even on operation error", async () => {
+      await expect(
+        mutex.run(async () => {
+          throw new Error("Operation failed");
+        })
+      ).rejects.toThrow("Operation failed");
+
+      expect(mutex.lockCount).toBe(0);
+    });
+
+    test("run should maintain sequential execution", async () => {
+      const order: number[] = [];
+
+      const p1 = mutex.run(async () => {
+        await sleep(30);
+        order.push(1);
+      });
+
+      const p2 = mutex.run(async () => {
+        await sleep(10);
+        order.push(2);
+      });
+
+      const p3 = mutex.run(async () => {
+        order.push(3);
+      });
+
+      await Promise.all([p1, p2, p3]);
+
+      expect(order).toEqual([1, 2, 3]);
+    });
+
+    test("runSafe should return success tuple", async () => {
+      const [result, error] = await mutex.runSafe(async () => {
+        return { data: "test" };
+      });
+
+      expect(result).toEqual({ data: "test" });
+      expect(error).toBeUndefined();
+    });
+
+    test("runSafe should return error tuple on failure", async () => {
+      const [result, error] = await mutex.runSafe(async () => {
+        throw new Error("Safe error");
+      });
+
+      expect(result).toBeUndefined();
+      expect(error).toBeInstanceOf(Error);
+      expect(error?.message).toBe("Safe error");
+    });
+
+    test("runSafe should handle synchronous operations", async () => {
+      const [result, error] = await mutex.runSafe(() => 123);
+
+      expect(result).toBe(123);
+      expect(error).toBeUndefined();
+    });
+
+    test("runSafe should handle synchronous throws", async () => {
+      const [result, error] = await mutex.runSafe(() => {
+        throw new Error("Sync error");
+      });
+
+      expect(result).toBeUndefined();
+      expect(error?.message).toBe("Sync error");
+    });
+
+    test("runSafe should timeout if lock cannot be acquired", async () => {
+      const lock = await mutex.acquireLock();
+
+      const [result, error] = await mutex.runSafe(
+        async () => "never",
+        { timeout: 50 }
+      );
+
+      expect(result).toBeUndefined();
+      expect(error).toBeInstanceOf(Mutex.ErrorLockTimeout);
+
+      lock.releaseLock();
+    });
+
+    test("runSafe should release lock and continue queue on error", async () => {
+      const results: string[] = [];
+
+      const p1 = mutex.runSafe(async () => {
+        results.push("first");
+        throw new Error("first error");
+      });
+
+      const p2 = mutex.runSafe(async () => {
+        results.push("second");
+        return "ok";
+      });
+
+      const [[, e1], [r2]] = await Promise.all([p1, p2]);
+
+      expect(results).toEqual(["first", "second"]);
+      expect(e1?.message).toBe("first error");
+      expect(r2).toBe("ok");
+      expect(mutex.lockCount).toBe(0);
+    });
+  });
+
   describe("Edge cases and concurrency", () => {
     test("should handle concurrent acquire attempts", async () => {
       const results: number[] = [];
