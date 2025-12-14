@@ -12,21 +12,81 @@ bun add @asleepace/mutex
 
 ## Quick Start
 
-Example usage when writing to a shared resource like a writable stream:
+The simplest way to use the mutex is with the static `run` method:
 
 ```typescript
 import { Mutex } from '@asleepace/mutex'
 
-const mutex = Mutex.shared() // create a shared mutex
+// Run a critical section with the global mutex
+const result = await Mutex.run(async () => {
+  const data = await fetchSensitiveData()
+  await processData(data)
+  return data
+})
+```
+
+For error handling without try/catch, use `runSafe`:
+
+```typescript
+const [result, error] = await Mutex.runSafe(async () => {
+  return await riskyOperation()
+})
+
+if (error) {
+  console.error('Operation failed:', error)
+} else {
+  console.log('Success:', result)
+}
+```
+
+## Global Mutex
+
+The `Mutex` class provides a global singleton for quick access:
+
+```typescript
+// All these use the same global mutex instance
+await Mutex.run(() => criticalOperation())
+await Mutex.runSafe(() => riskyOperation())
+const wrapped = Mutex.wrap(myFunction)
+```
+
+> **Note:** Global mutex operations have a default timeout of 2 minutes.
+
+## Creating Instances
+
+For isolated mutex instances, use `Mutex.shared()` or `new Mutex()`:
+
+```typescript
+const mutex = Mutex.shared()
+
+// Using run/runSafe with custom timeout
+const result = await mutex.run(
+  async () => await processData(),
+  { timeout: 30_000 }
+)
+
+// Or with error handling
+const [data, error] = await mutex.runSafe(
+  async () => await fetchData(),
+  { timeout: 10_000 }
+)
+```
+
+## Manual Lock Control
+
+For fine-grained control, acquire locks directly:
+
+```typescript
+const mutex = Mutex.shared()
 const buffer = new WritableStream()
 
 async function fetchToSharedBuffer(url: string) {
-  const lock = await mutex.acquireLock({ timeout: 60_000 }) // acquire lock
+  const lock = await mutex.acquireLock({ timeout: 60_000 })
   try {
     const resp = await fetch(url, { method: 'GET' })
     await resp.body?.pipeTo(buffer)
   } finally {
-    lock.releaseLock() // release lock
+    lock.releaseLock()
   }
 }
 
@@ -35,32 +95,27 @@ fetchToSharedBuffer('/api/places')
 fetchToSharedBuffer('/api/things')
 ```
 
-Or even cleaner with the new `using` keyword:
+Or even cleaner with the `using` keyword:
 
 ```typescript
 async function fetchToSharedBuffer(url: string) {
-  using lock = await mutex.acquireLock({ timeout: 60_000 }) // acquire lock
+  using lock = await mutex.acquireLock({ timeout: 60_000 })
   const resp = await fetch(url, { method: 'GET' })
   await resp.body?.pipeTo(buffer)
-  // lock automatically released...!
+  // lock automatically released!
 }
 ```
 
 ## Examples
 
-### Sequential Processing
+### Sequential Processing with wrap
 
 ```typescript
-const sleepRandom = () =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, Math.random() * 1_000)
-  })
-
 const mutex = Mutex.shared()
-const chars = [] as string[]
+const chars: string[] = []
 
 const writeSequentially = mutex.wrap(async (char: string) => {
-  await sleepRandom()
+  await sleep(Math.random() * 100)
   chars.push(char)
 })
 
@@ -69,8 +124,21 @@ writeSequentially('b')
 writeSequentially('c')
 
 await mutex.finished()
-
 console.log(chars) // ['a', 'b', 'c']
+```
+
+### Safe Error Handling
+
+```typescript
+// Instead of try/catch, use runSafe for tuple-based error handling
+const [user, error] = await Mutex.runSafe(async () => {
+  return await db.users.findById(id)
+})
+
+if (error) {
+  return { status: 500, message: error.message }
+}
+return { status: 200, data: user }
 ```
 
 ### Timeout Handling
@@ -84,12 +152,21 @@ try {
     console.log('Lock acquisition timed out')
   }
 }
+
+// Or with runSafe
+const [result, error] = await mutex.runSafe(
+  () => longRunningTask(),
+  { timeout: 5000 }
+)
+if (error instanceof Mutex.ErrorLockTimeout) {
+  console.log('Operation timed out waiting for lock')
+}
 ```
 
 ### Resource Cleanup
 
 ```typescript
-// Automatic cleanup
+// Automatic cleanup with using statement
 using mutex = new Mutex()
 // Mutex destroyed when scope exits
 
@@ -120,28 +197,94 @@ await Promise.all([
 
 ### `Mutex`
 
-#### Properties
+#### Static Properties
+
+- `Mutex.global: Mutex` - Global singleton mutex instance
+
+#### Static Methods
+
+**`Mutex.run<T>(operation): Promise<T>`**
+
+Execute an operation with the global mutex. Default timeout is 2 minutes.
+
+```typescript
+const result = await Mutex.run(async () => {
+  return await criticalOperation()
+})
+```
+
+**`Mutex.runSafe<T>(operation): Promise<[T, undefined] | [undefined, Error]>`**
+
+Execute an operation with the global mutex, returning a result tuple instead of throwing.
+
+```typescript
+const [result, error] = await Mutex.runSafe(async () => {
+  return await riskyOperation()
+})
+```
+
+**`Mutex.wrap<T>(fn): (...args) => Promise<T>`**
+
+Wrap a function with the global mutex.
+
+```typescript
+const safeWrite = Mutex.wrap(writeToFile)
+await safeWrite('data.txt', content)
+```
+
+**`Mutex.shared(): Mutex`**
+
+Create a new mutex instance.
+
+```typescript
+const mutex = Mutex.shared()
+```
+
+#### Instance Properties
 
 - `lockCount: number` - Number of pending lock acquisitions
 - `isDestroyed: boolean` - Whether the mutex has been destroyed
 
-#### Methods
+#### Instance Methods
+
+**`run<T>(operation, options?): Promise<T>`**
+
+Execute an operation after acquiring the lock.
+
+```typescript
+const result = await mutex.run(
+  async () => await processData(),
+  { timeout: 30_000 }
+)
+```
+
+**`runSafe<T>(operation, options?): Promise<[T, undefined] | [undefined, Error]>`**
+
+Execute an operation, returning a result tuple instead of throwing.
+
+```typescript
+const [result, error] = await mutex.runSafe(
+  async () => await fetchData(),
+  { timeout: 10_000 }
+)
+```
 
 **`acquireLock(options?): Promise<AsyncLock>`**
 
+Acquire a lock for manual control.
+
 ```typescript
 const lock = await mutex.acquireLock({ timeout: 5000 })
+try {
+  // critical section
+} finally {
+  lock.releaseLock()
+}
 ```
 
-**`withLock<T>(operation: () => T | Promise<T>): Promise<T>`**
+**`wrap<T>(fn): (...args) => Promise<T>`**
 
-```typescript
-const result = await mutex.withLock(() => {
-  return criticalOperation()
-})
-```
-
-**`wrap<T>(fn: (...args: any[]) => T): (...args: any[]) => Promise<T>`**
+Wrap a function so it automatically acquires the lock.
 
 ```typescript
 const protectedFn = mutex.wrap(originalFunction)
@@ -149,15 +292,23 @@ const protectedFn = mutex.wrap(originalFunction)
 
 **`finished(): Promise<void>`**
 
+Wait for all pending operations to complete.
+
 ```typescript
-await mutex.finished() // Wait for all pending operations
+await mutex.finished()
 ```
 
 **`destroy(): void`**
 
+Destroy the mutex and cancel all pending operations.
+
 ```typescript
-mutex.destroy() // Cancel all pending operations
+mutex.destroy()
 ```
+
+**`withLock<T>(operation): Promise<T>`** *(deprecated)*
+
+Use `run()` instead.
 
 ### `AsyncLock`
 
@@ -183,9 +334,11 @@ Mutex.ErrorLockTimeout // Lock acquisition timed out
 ## Features
 
 - ✅ **TypeScript-first** - Full type safety and IntelliSense
+- ✅ **Global mutex** - Quick access via `Mutex.run()`, `Mutex.runSafe()`, and `Mutex.wrap()`
+- ✅ **Result tuples** - `runSafe()` returns `[result, error]` for clean error handling
 - ✅ **Automatic cleanup** - Support for `using` statement and `Symbol.dispose`
 - ✅ **Timeout support** - Configurable lock acquisition timeouts
-- ✅ **Helper methods** - `withLock()` and `wrap()` for common patterns
+- ✅ **Helper methods** - `run()`, `runSafe()`, and `wrap()` for common patterns
 - ✅ **Queue monitoring** - Track pending operations with `lockCount`
 - ✅ **Error handling** - Specific error types for different failure modes
 - ✅ **Zero dependencies** - Lightweight and self-contained

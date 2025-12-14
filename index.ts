@@ -142,8 +142,14 @@ export class Mutex {
 
   /**
    * Wraps an operation with the global mutex.
+   * 
+   * @note global timeout is 2 minutes.
    */
-  static wrap = Mutex.global.wrap
+  static wrap<TInput, TOutput>(
+    operation: (...args: TInput[]) => TOutput
+  ): (...args: TInput[]) => Promise<Awaited<TOutput>> {
+    return Mutex.global.wrap(operation)
+  }
 
   /**
    * Static helper which creates a new mutex instance.
